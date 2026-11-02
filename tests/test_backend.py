@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import threading
 import traceback
+from types import SimpleNamespace
 import unittest
 import weakref
 
@@ -410,6 +411,90 @@ class RealAdapterGuardsTests(unittest.TestCase):
         self.assertEqual(nearest_level(30, [0, 20, 40, 100]), 20)
         with self.assertRaises(ControlFailure):
             nearest_level(50, [])
+
+
+class BrightnessWriteConfirmationTests(unittest.TestCase):
+    class MissingProperty(Exception):
+        hresult = -2147217406  # WBEM_E_NOT_FOUND
+
+    class Properties:
+        def __init__(self, **values):
+            self.values = {name: SimpleNamespace(Value=value) for name, value in values.items()}
+
+        def Item(self, name):
+            if name not in self.values:
+                raise BrightnessWriteConfirmationTests.MissingProperty(name)
+            return self.values[name]
+
+    def make_adapter(self, readbacks, output=None, cancel_on_write=None):
+        adapter = WindowsBrightnessAdapter()
+        adapter._readback_interval = 0.001
+        adapter._readback_timeout = 0.025
+        record = {"called": False, "readbacks": 0}
+        values = list(readbacks)
+        parameters = SimpleNamespace(Properties_=self.Properties(Timeout=None, Brightness=None))
+        method = SimpleNamespace(InParameters=SimpleNamespace(SpawnInstance_=lambda: parameters))
+
+        def execute(name, supplied):
+            self.assertEqual(name, "WmiSetBrightness")
+            self.assertIs(supplied, parameters)
+            self.assertEqual(parameters.Properties_.Item("Timeout").Value, 0)
+            self.assertEqual(parameters.Properties_.Item("Brightness").Value, 50)
+            record["called"] = True
+            if cancel_on_write is not None:
+                cancel_on_write.set()
+            return output
+
+        target = SimpleNamespace(Properties_=self.Properties(Active=True, InstanceName="panel"),
+                                 Methods_=SimpleNamespace(Item=lambda name: method), ExecMethod_=execute)
+        adapter._query = lambda class_name: [target]
+
+        def monitor():
+            value = 100
+            if record["called"]:
+                record["readbacks"] += 1
+                value = values.pop(0) if len(values) > 1 else values[0]
+            return {"active": True, "instance_name": "panel", "percent": value, "levels": [0, 50, 100]}
+
+        adapter._monitor = monitor
+        return adapter, record
+
+    def test_none_or_missing_output_requires_eventual_readback_confirmation(self):
+        outputs = (None, SimpleNamespace(Properties_=self.Properties()),
+                   SimpleNamespace(Properties_=self.Properties(ReturnValue=0)))
+        for output in outputs:
+            with self.subTest(output=output):
+                adapter, record = self.make_adapter([100, 100, 50], output)
+                result = adapter.set_brightness(53, "panel")
+                self.assertEqual(result["percent"], 50)
+                self.assertIsNone(result["error"])
+                self.assertEqual(record["readbacks"], 3)
+
+    def test_provider_return_failure_is_not_hidden_by_readback(self):
+        for code, error in ((1, "operation_failed"), (5, "access_denied")):
+            with self.subTest(code=code):
+                output = SimpleNamespace(Properties_=self.Properties(ReturnValue=code))
+                adapter, record = self.make_adapter([50], output)
+                with self.assertRaises(ControlFailure) as exc:
+                    adapter.set_brightness(50, "panel")
+                self.assertEqual(exc.exception.code, error)
+                self.assertEqual(record["readbacks"], 0)
+
+    def test_unconfirmed_applied_value_times_out_instead_of_claiming_success(self):
+        adapter, record = self.make_adapter([100])
+        with self.assertRaises(ControlFailure) as exc:
+            adapter.set_brightness(50, "panel")
+        self.assertEqual(exc.exception.code, "timeout")
+        self.assertTrue(record["called"])
+        self.assertGreater(record["readbacks"], 1)
+
+    def test_readback_obeys_cancellation(self):
+        cancelled = threading.Event()
+        adapter, record = self.make_adapter([50], cancel_on_write=cancelled)
+        with self.assertRaises(ControlFailure) as exc:
+            adapter.set_brightness(50, "panel", cancelled=cancelled)
+        self.assertEqual(exc.exception.code, "operation_failed")
+        self.assertEqual(record["readbacks"], 0)
 
 
 if __name__ == "__main__":

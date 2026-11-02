@@ -1,5 +1,7 @@
 """Integrated-panel brightness through root\\wmi; never DDC/CI or gamma."""
 
+import time
+
 from ..errors import ControlFailure, check_write_allowed
 from .apartment import ComApartment
 
@@ -38,12 +40,29 @@ def _property(obj, name):
     return obj.Properties_.Item(name).Value
 
 
+def _method_return_value(result):
+    """Some brightness providers apply the method without an OutParameters object."""
+    if result is None:
+        return None
+    try:
+        value = _property(result, "ReturnValue")
+    except Exception as exc:
+        code = getattr(exc, "hresult", None)
+        # WBEM_E_NOT_FOUND / dispatch member absent: no declared return value.
+        if isinstance(code, int) and (code & 0xFFFFFFFF) in (0x80041002, 0x80020003, 0x80020006):
+            return None
+        raise
+    return None if value is None else int(value)
+
+
 class WindowsBrightnessAdapter:
     def __init__(self):
         self._apartment = ComApartment()
         self._locator = None
         self._services = None
         self._pinned_instance = None
+        self._readback_timeout = 2.0
+        self._readback_interval = 0.1
 
     def open(self):
         self._apartment.open()
@@ -110,13 +129,33 @@ class WindowsBrightnessAdapter:
             raise ControlFailure("device_changed", "La pantalla ha cambiado. Actualiza el panel.")
         check_write_allowed(cancelled)
         result = method_target.ExecMethod_("WmiSetBrightness", parameters)
-        return_value = int(_property(result, "ReturnValue"))
-        if return_value:
-            if return_value in (5, 0x80070005, 0x80041003):
+        return_value = _method_return_value(result)
+        if return_value is not None and return_value != 0:
+            if (return_value & 0xFFFFFFFF) in (5, 0x80070005, 0x80041003):
                 raise ControlFailure("access_denied", "Windows ha denegado el cambio de brillo.")
             raise ControlFailure("operation_failed", "El controlador no ha confirmado el cambio de brillo.")
-        # Read back instead of claiming that the requested level was applied.
-        return self.read(cancelled=cancelled)
+        # WMI can return before CurrentBrightness catches up, and some providers
+        # return no OutParameters at all. Only observed state confirms success.
+        return self._wait_for_level(requested, expected_instance_name, cancelled)
+
+    def _wait_for_level(self, requested, expected_instance_name, cancelled):
+        deadline = time.monotonic() + self._readback_timeout
+        while True:
+            check_write_allowed(cancelled)
+            monitor = self._monitor()
+            check_write_allowed(cancelled)
+            if monitor["instance_name"] != expected_instance_name:
+                raise ControlFailure("device_changed", "La pantalla ha cambiado durante el ajuste de brillo.")
+            if monitor["percent"] == requested:
+                return self._snapshot(monitor)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ControlFailure("timeout", "Windows no ha confirmado el nuevo brillo a tiempo.")
+            delay = min(self._readback_interval, remaining)
+            if cancelled is None:
+                time.sleep(delay)
+            else:
+                cancelled.wait(delay)
 
     def close(self):
         self._services = None
