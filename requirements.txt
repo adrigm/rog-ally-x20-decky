@@ -1,0 +1,2 @@
+# Pure Python COM bindings. Bundled into py_modules for Decky's interpreter.
+comtypes==1.4.17
