@@ -7,6 +7,7 @@ import sys
 import threading
 import traceback
 import unittest
+import weakref
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "py_modules"))
 
@@ -98,6 +99,7 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.brightness.open_thread, self.brightness.close_thread)
 
     async def test_invalid_inputs_are_structured_and_never_write(self):
+        await self.controller.get_state()
         for invalid in (True, False, None, "12", float("nan"), float("inf"), -1, 101, 10 ** 1000):
             with self.subTest(invalid=repr(invalid)[:40]):
                 state = await self.controller.set_volume(invalid, "speakers")
@@ -109,6 +111,77 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
         state = await self.controller.set_brightness(50, None)
         self.assertEqual(state["brightness"]["error"]["code"], "invalid_argument")
         self.assertEqual(self.audio.writes + self.brightness.writes, [])
+
+    async def test_independent_setters_never_read_the_other_control(self):
+        state = await self.controller.set_volume(22, "speakers")
+        self.assertFalse(state["brightness"]["available"])
+        self.assertIsNone(state["brightness"]["percent"])
+        await asyncio.gather(self.controller.set_mute(True, "speakers"),
+                             self.controller.set_brightness(20, "panel"))
+        self.assertEqual(self.audio.calls, [])
+        self.assertEqual(self.brightness.calls, [])
+        self.assertEqual(self.audio.state["volume"], 22)
+        self.assertTrue(self.audio.state["muted"])
+        self.assertEqual(self.brightness.state["percent"], 20)
+
+    async def test_invalid_setter_does_not_start_workers(self):
+        state = await self.controller.set_volume(float("nan"), "speakers")
+        self.assertEqual(state["audio"]["error"]["code"], "invalid_argument")
+        self.assertIsNone(self.audio.open_thread)
+        self.assertIsNone(self.brightness.open_thread)
+        self.assertIsNone(state["audio"]["volume"])
+
+    async def test_slow_wmi_does_not_delay_audio_setter(self):
+        release = threading.Event()
+        brightness = FakeAdapter("brightness", release)
+        audio = FakeAdapter("audio")
+        controller = SystemController(lambda: audio, lambda: brightness, timeout=1.0)
+        reading = asyncio.create_task(controller.get_state())
+        try:
+            while not brightness.started.is_set():
+                await asyncio.sleep(0.001)
+            state = await asyncio.wait_for(controller.set_volume(23, "speakers"), timeout=0.15)
+            self.assertEqual(state["audio"]["volume"], 23)
+            self.assertFalse(reading.done())
+            self.assertEqual(brightness.calls, ["read"])
+        finally:
+            release.set()
+            await reading
+            await controller.close()
+
+    async def test_old_read_cannot_replace_newer_confirmed_setter(self):
+        read_started = asyncio.Event()
+        release_read = asyncio.Event()
+        old_state = copy.deepcopy(self.audio.state)
+        new_state = dict(old_state, volume=75)
+
+        async def scripted_call(method, *args):
+            if method == "read":
+                read_started.set()
+                await release_read.wait()
+                return copy.deepcopy(old_state)
+            return copy.deepcopy(new_state)
+
+        self.controller._audio.call = scripted_call
+        reading = asyncio.create_task(self.controller.get_state())
+        await read_started.wait()
+        state = await self.controller.set_volume(75, "speakers")
+        self.assertEqual(state["audio"]["volume"], 75)
+        release_read.set()
+        state = await reading
+        self.assertEqual(state["audio"]["volume"], 75)
+
+    async def test_busy_poll_preserves_confirmed_device_availability(self):
+        await self.controller.get_state()
+
+        async def busy_call(method, *args):
+            raise ControlFailure("busy", "Queue full")
+
+        self.controller._audio.call = busy_call
+        state = await self.controller.get_state()
+        self.assertTrue(state["audio"]["available"])
+        self.assertEqual(state["audio"]["volume"], 42)
+        self.assertIsNone(state["audio"]["error"])
 
     async def test_setters_return_effective_state_and_mute_is_independent(self):
         await self.controller.set_mute(True, "speakers")
@@ -151,6 +224,35 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
 
 
 class WorkerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_repeated_init_failure_retains_no_native_traceback(self):
+        references = []
+        opens = []
+
+        class NativeResource:
+            pass
+
+        class FailedInitialization(FakeAdapter):
+            def open(self):
+                super().open()
+                opens.append(1)
+                resource = NativeResource()
+                references.append(weakref.ref(resource))
+                raise RuntimeError("initialization failed with local resource")
+
+        worker = ControlWorker("test", lambda: FailedInitialization("audio"))
+        try:
+            for _ in range(3):
+                try:
+                    await worker.call("read")
+                    self.fail("Expected initialization failure")
+                except ControlFailure as exc:
+                    self.assertEqual(exc.code, "operation_failed")
+                    self.assertNotIn("open", [frame.name for frame in traceback.extract_tb(exc.__traceback__)])
+                self.assertIsNone(references[0]())
+            self.assertEqual(len(opens), 1)
+        finally:
+            await worker.close()
+
     async def test_native_exception_traceback_never_crosses_thread_boundary(self):
         class FailingAdapter(FakeAdapter):
             def read(self, cancelled=None):

@@ -74,8 +74,12 @@ class ControlWorker:
                 adapter = self._factory()
                 adapter.open()
             except Exception as exc:
-                initialization_error = exc
                 self._last_error = "{}: {}".format(type(exc).__name__, exc)[:500]
+                failure = normalize_error(exc)
+                # Retain primitive data only, never an open() traceback that may
+                # own partially created COM objects. Each request gets a new error.
+                initialization_error = (failure.code, failure.message)
+                del failure
             while True:
                 with self._lock:
                     if self._closed or self._timed_out:
@@ -91,7 +95,7 @@ class ControlWorker:
                     if stopping or operation.cancelled.is_set():
                         raise ControlFailure("operation_failed", "La operación se ha cancelado.")
                     if initialization_error is not None:
-                        raise initialization_error
+                        raise ControlFailure(*initialization_error)
                     value = getattr(adapter, operation.method)(*operation.args, cancelled=operation.cancelled)
                     if not operation.result.done():
                         operation.result.set_result(value)
