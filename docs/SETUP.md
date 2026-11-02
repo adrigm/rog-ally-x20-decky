@@ -1,23 +1,24 @@
 # Herramientas para desarrollar el plugin en Windows
 
-Comprobación realizada el 2 de noviembre de 2026. No se ha instalado software ni modificado el PATH, Steam, Decky, brillo o volumen durante la planificación.
+Estado actualizado durante la implementación del 2 de noviembre de 2026. Node.js, pnpm, GitHub CLI y Python 3.14 ya están instalados en el equipo de desarrollo. Los pasos de instalación se conservan para preparar otro entorno.
 
 ## 1. Qué hay y qué falta
 
 | Herramienta | Estado comprobado | Acción |
 | --- | --- | --- |
-| Python | CPython 3.15.2 x64; funcionan `python` y `py`. | Conservar. No es solo un alias vacío de Microsoft Store. |
+| Python | CPython 3.15.2 y 3.14.10 x64 en paralelo. | Usar 3.14 para `.venv`; conservar 3.15. |
 | pip / venv / ctypes | Presentes; pip 26.2.2. | Reutilizar para tareas generales; aislar las dependencias del proyecto. |
 | Git | 2.56.0.windows.4 en `C:\Program Files\Git\cmd\git.exe`. | No reinstalar. Resolver PATH de la nueva sesión o usar la ruta absoluta. |
-| Node.js / npm | No encontrados en PATH ni en la ubicación convencional revisada. | Instalar Node.js LTS x64, que incluye npm. |
-| pnpm | No encontrado. | Instalar 9.15.9 para seguir el requisito pnpm 9 de la plantilla. |
+| Node.js / npm | Node 26.13.0 y npm 11.20.0. | Disponibles; los scripts tienen fallback si la terminal conserva un PATH antiguo. |
+| pnpm | 9.15.9. | Disponible. |
+| GitHub CLI | 2.103.3, autenticado. | Gestión del repositorio público; Actions deshabilitado. |
 | Steam | Instalado y CEF activo en loopback. | Aprovechar la configuración existente; comprobar Big Picture. |
 | Decky | Procesos, carpeta de plugins y listener activos. | Identificar versión y runtime; no reinstalar de entrada. |
 | VS Code | Instalado. | Editor opcional ya disponible. |
 | winget | v1.29.380 operativo. | Puede instalar las herramientas que faltan. |
 | PowerShell | 7.6.5 en la auditoría. | Usar PowerShell 7 para el diagnóstico y los futuros scripts. |
 | .NET | Runtimes 8.0.21/8.0.33; `--list-sdks` vacío. | No hace falta SDK para el diseño elegido. |
-| comtypes / pycaw / pytest | No instalados en el Python auditado. | comtypes se preparará dentro del entorno del proyecto; no hace falta instalarlos globalmente. |
+| comtypes / pruebas | comtypes 1.4.17 en `.venv` y en staging; unittest estándar. | No se necesitan pycaw ni pytest. |
 | Rust / Cargo / CMake | No encontrados. | No necesarios para el MVP. |
 | WSL | `wsl.exe` presente; no se han inspeccionado distribuciones. | No es requisito. Docker tampoco es requisito para este MVP. |
 
@@ -88,7 +89,7 @@ py -3.14 -m venv .venv
 .\.venv\Scripts\python.exe --version
 ```
 
-Se usarán llamadas explícitas a `.venv\Scripts\python.exe`, sin necesidad de activar el entorno ni de alterar políticas de PowerShell. Después se fijará una versión compatible de `comtypes` y las herramientas de prueba en los archivos de dependencias. Todavía no existen esos archivos: no se ha simulado que el backend esté preparado.
+Se usan llamadas explícitas a `.venv\Scripts\python.exe`, sin necesidad de activar el entorno ni de alterar políticas de PowerShell. `requirements.txt` fija comtypes 1.4.17; `build.ps1` crea el entorno, instala esta dependencia y ejecuta las pruebas locales.
 
 `comtypes` será la dependencia propuesta para COM/WMI y se probará también dentro de Decky. `pycaw`, `pywin32`, Poetry y PyInstaller no son requisitos iniciales del plugin; no se va a recompilar el loader para añadir estos controles. [comtypes](https://github.com/enthought/comtypes).
 
@@ -127,4 +128,4 @@ El script recoge herramientas, hardware, brillo WMI, presencia de Steam/Decky y 
 
 No se necesitan Docker Desktop, WSL/Linux, Rust, CMake, Visual Studio Build Tools, un SDK .NET ni un controlador ASUS propio para el plugin Python/TypeScript propuesto. React, TypeScript y Rollup se instalarán como dependencias del proyecto, no como herramientas globales.
 
-Si una comprobación real obliga a cambiar esa elección, primero se documentará el fallo y la dependencia concreta que lo resuelve. La siguiente entrega será el plugin mínimo de viabilidad descrito en [PLAN.md](PLAN.md#9-fases-y-condiciones-de-salida).
+Si una comprobación real obliga a cambiar esa elección, primero se documentará el fallo y la dependencia concreta que lo resuelve. La implementación y sus scripts ya están disponibles; [TESTING.md](TESTING.md) distingue lo comprobado de la validación pendiente dentro de Decky.

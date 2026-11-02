@@ -1,0 +1,10 @@
+{
+  "name": "Ally System Control",
+  "author": "adrigm",
+  "flags": [],
+  "api_version": 1,
+  "publish": {
+    "tags": ["windows", "audio", "brightness", "ally"],
+    "description": "Control de volumen, silencio y brillo de Windows desde Decky en la ROG Ally."
+  }
+}

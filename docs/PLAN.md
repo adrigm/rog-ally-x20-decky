@@ -2,6 +2,8 @@
 
 Fecha de referencia: 2 de noviembre de 2026, Europe/Madrid. Nombre provisional: **Ally System Control**. Identificador de carpeta previsto: `ally-system-control`.
 
+Este documento conserva el plan de referencia. La implementación inicial ya está en marcha; el estado verificado y las comprobaciones pendientes están en [TESTING.md](TESTING.md).
+
 ## 1. Objetivo y primera entrega
 
 Crear un plugin de Decky Loader para Windows 11, accesible desde Steam Big Picture y manejable con los controles de la Ally y la pantalla táctil.
@@ -126,7 +128,7 @@ Los errores aparecerán junto al control, sin generar una notificación por cada
 
 ## 8. Estructura prevista del repositorio
 
-Esta es una estructura de implementación futura; hoy solo existen la documentación y el diagnóstico.
+Esta es la estructura prevista en el plan; la implementación inicial emplea `worker.py` y `windows/apartment.py` para separar la cola y la inicialización COM.
 
 ```text
 ally-system-control/
