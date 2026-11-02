@@ -1,0 +1,15 @@
+# Entornos y dependencias de desarrollo
+.venv/
+node_modules/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Salidas futuras del plugin
+dist/
+out/
+artifacts/
+*.log
+
+# Inventario local: rutas del usuario y detalles del equipo
+docs/environment-audit.json
