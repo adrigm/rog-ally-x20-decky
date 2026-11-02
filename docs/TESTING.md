@@ -42,11 +42,11 @@ Los cambios se hicieron con identificación del dispositivo y restauración cond
 
 El paquete completo se ha copiado a `%USERPROFILE%\homebrew\plugins\ally-system-control` mediante `deploy-dev.ps1`. Era la primera instalación de este plugin; no fue necesario reemplazar una copia anterior. No se reiniciaron Steam, Decky ni los otros plugins.
 
-La copia en disco está comprobada. La carga efectiva y la presentación dentro del loader permanecen pendientes de confirmación visual.
+La copia en disco está comprobada. El usuario ha confirmado que «Ally System Control» aparece en Decky y muestra los valores de volumen y brillo. Esta comprobación confirma la carga del panel y la comunicación con el backend en su instalación real; la revisión visual completa y el manejo con mando siguen pendientes.
 
 ## Validación manual pendiente
 
-- Cargar el plugin en Decky y registrar las versiones de loader y Python que devuelve «Mostrar diagnóstico».
+- Registrar las versiones de loader y Python que devuelve «Mostrar diagnóstico»; la carga y las lecturas del panel ya están confirmadas por el usuario.
 - Comprobar presentación, foco y navegación completa con mando y pantalla táctil.
 - Alternar silencio desde el panel y confirmar el efecto audible y la conservación del nivel.
 - Comprobar cambios externos desde botones físicos, Windows y Armoury Crate.
